@@ -1,0 +1,8 @@
+{
+  "name": "Moodle Course Downloader",
+  "description": "Download course resources, presentations, documents, and folders from Moodle organized by section with multi-threaded downloading and auto-unpacking.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
