@@ -6,9 +6,16 @@
   "scripts": {
     "dev": "tsx server.ts",
     "build": "tsc && vite build",
-    "start": "tsx server.ts"
+    "start": "tsx server.ts",
+    "version:bump": "node scripts/bump-version.mjs",
+    "cap:sync": "npm run build && npx cap sync android",
+    "apk:debug": "npm run cap:sync && cd android && ./gradlew assembleDebug"
   },
   "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/cli": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/filesystem": "^8.1.5",
     "archiver": "^7.0.1",
     "cheerio": "^1.0.0-rc.12",
     "cors": "^2.8.5",

@@ -1,0 +1,131 @@
+name: Build Android Debug APK & Auto-Release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: 'Semantic version bump type (patch, minor, major)'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release-apk:
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Set up JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Auto-Bump Version & Tag
+        id: version_bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          BUMP_TYPE="${{ github.event.inputs.bump_type || 'patch' }}"
+          if [[ "${{ github.event.head_commit.message }}" == *"#major"* ]]; then
+            BUMP_TYPE="major"
+          elif [[ "${{ github.event.head_commit.message }}" == *"#minor"* ]]; then
+            BUMP_TYPE="minor"
+          fi
+
+          OUTPUT=$(node scripts/bump-version.mjs "$BUMP_TYPE")
+          VERSION=$(echo "$OUTPUT" | grep '^VERSION=' | cut -d'=' -f2)
+          VERSION_CODE=$(echo "$OUTPUT" | grep '^VERSION_CODE=' | cut -d'=' -f2)
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+
+          git add package.json
+          git commit -m "chore(release): bump version to v$VERSION [skip ci]" || true
+          git tag -f -a "v$VERSION" -m "Release v$VERSION (Debug APK)"
+          git push origin HEAD:${{ github.ref_name }} --follow-tags
+
+      - name: Build Web Application Bundle
+        run: npm run build
+
+      - name: Initialize & Sync Capacitor Android Platform
+        run: |
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+          npx cap sync android
+
+      - name: Configure Android Manifest & Version Metadata
+        run: |
+          node scripts/bump-version.mjs --sync-only || true
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          if [ -f "$MANIFEST" ] && ! grep -q "usesCleartextTraffic" "$MANIFEST"; then
+            sed -i 's/<application/<application android:usesCleartextTraffic="true"/' "$MANIFEST"
+          fi
+
+      - name: Build Debug APK (assembleDebug)
+        working-directory: ./android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Prepare Named Debug APK Artifact
+        id: apk_artifact
+        run: |
+          APK_NAME="moodle-downloader-v${{ steps.version_bump.outputs.version }}-debug.apk"
+          cp android/app/build/outputs/apk/debug/app-debug.apk "./$APK_NAME"
+          echo "apk_name=$APK_NAME" >> $GITHUB_OUTPUT
+
+      - name: Upload Debug APK to GitHub Actions Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: moodle-downloader-v${{ steps.version_bump.outputs.version }}-debug-apk
+          path: ./${{ steps.apk_artifact.outputs.apk_name }}
+          retention-days: 90
+
+      - name: Publish Debug APK to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version_bump.outputs.tag }}
+          name: "Moodle Downloader ${{ steps.version_bump.outputs.tag }} (Android Debug APK)"
+          generate_release_notes: true
+          body: |
+            ### Moodle Course Downloader ${{ steps.version_bump.outputs.tag }} — Android Debug APK
+            - **Installable Debug APK**: `${{ steps.apk_artifact.outputs.apk_name }}` (pre-signed with Android debug key; ready to install directly on any Android device).
+            - **Authentication**: Supports both in-app WebView SSO/2FA login and manual `MoodleSession` cookie entry.
+            - **Version Code**: `${{ steps.version_bump.outputs.version_code }}`
+          files: |
+            ./${{ steps.apk_artifact.outputs.apk_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

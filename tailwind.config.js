@@ -6,14 +6,19 @@ export default {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        display: ['"Plus Jakarta Sans"', 'sans-serif'],
+        sans: ['"DM Sans"', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'monospace'],
+      },
       colors: {
         moodle: {
           orange: '#f98012',
-          dark: '#1e293b',
-          accent: '#0284c7',
-        }
-      }
+          dark: '#0f172a',
+          accent: '#4f46e5',
+        },
+      },
     },
   },
   plugins: [],
-}
+};
